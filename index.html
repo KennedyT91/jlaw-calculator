@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J Law 交易指揮中心 (終極版)</title>
+    <title>J Law 交易指揮中心 (雲端同步版)</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; line-height: 1.6; padding: 20px; }
         .main-wrapper { max-width: 1200px; margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -204,8 +204,15 @@
 
     <div class="container full-width" style="border-top: 5px solid #8e44ad;">
         <h2>📝 交易日誌與檢討 (Trade Journal)</h2>
-        <p style="font-size: 14px; color: #7f8c8d; text-align: center;">紀錄每次落盤嘅決定，數據會保存在您的瀏覽器中。</p>
+        <p style="font-size: 14px; color: #7f8c8d; text-align: center;">紀錄每次落盤嘅決定，數據會保存在您的瀏覽器中，並同步至雲端。</p>
         
+        <div class="grid-2">
+            <div class="form-group">
+                <label style="color: #2980b9;">實際買入數量 (可選)：</label>
+                <input type="number" id="actualShares" placeholder="如買齊手數/齊頭，請填寫。留空則用系統建議" step="0.0001" style="border-color: #3498db;">
+            </div>
+        </div>
+
         <div class="form-group">
             <label>交易筆記 / 買入理由 (Setup) / 檢討：</label>
             <textarea id="tradeNote" rows="3" placeholder="例如：大盤氣氛轉好， NVDA 出現完美 VCP 突破，帶 2 倍 Volume。打算喺 3R 賣出一半..."></textarea>
@@ -225,7 +232,7 @@
                         <th>模式</th>
                         <th>買入價</th>
                         <th>止蝕價</th>
-                        <th>數量</th>
+                        <th>實際數量</th>
                         <th>筆記與檢討</th>
                         <th>操作</th>
                     </tr>
@@ -328,11 +335,11 @@
         currentCalcData = {
             ticker: ticker || "未填寫",
             mode: modeText.split(' ')[1], // 提取模式名稱
-            entry: currentCalcData.currency + " $" + entry, // 純數字方便日後擴充
+            entry: currentCalcData.currency + " $" + entry,
             rawEntry: entry, 
             rawStop: stop,
             currency: tradeCurr,
-            shares: unitsToBuy
+            shares: unitsToBuy // 系統建議數量
         };
     }
 
@@ -368,19 +375,23 @@
         checkboxes.forEach(cb => cb.checked = false);
     }
 
-    // --- 交易日誌 (Journal) 系統 ---
-   function saveTradeRecord() {
+    // --- 交易日誌 (Journal) 系統 (含 Google Sheets 同步) ---
+    function saveTradeRecord() {
         if (!currentCalcData.rawEntry) {
             alert("請先點擊「1. 計算進場計畫與 R 倍數」以產生數據！"); return;
         }
         
-        // 🚨 請將下面這行引號內的網址，換成你剛剛複製的 Google Web App URL 🚨
+        // 🚨 將下方引號內的網址，替換成你自己的 Google Apps Script Web App URL 🚨
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzwzZxKHx5jjXV2xBzBvGsdvHYfaspDfNjncCKEG25pvKR3Ja7YY9dNzpeIrRMTsz77KQ/exec";
         
         const note = document.getElementById('tradeNote').value;
         const now = new Date();
         const dateString = now.toLocaleDateString('zh-HK') + " " + now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
         
+        // 檢查用戶有沒有手動輸入「實際買入數量」
+        const actualSharesInput = document.getElementById('actualShares').value;
+        const finalShares = actualSharesInput !== "" ? actualSharesInput : currentCalcData.shares;
+
         const newRecord = {
             id: Date.now(),
             date: dateString,
@@ -388,30 +399,42 @@
             mode: currentCalcData.mode,
             entry: currentCalcData.currency + " " + currentCalcData.rawEntry,
             stop: currentCalcData.currency + " " + currentCalcData.rawStop,
-            shares: currentCalcData.shares,
+            shares: finalShares, // 使用最終判定的數量
             note: note
         };
 
-        // 1. 照常儲存到本地端 (讓你手機網頁下方依然睇到紀錄)
+        // 1. 本地端儲存 (Browser localStorage)
         let journal = JSON.parse(localStorage.getItem('jlaw_journal')) || [];
         journal.unshift(newRecord);
         localStorage.setItem('jlaw_journal', JSON.stringify(journal));
         renderJournal();
 
+        // 如果未設定 Google Sheets URL，只做本地儲存
+        if (GAS_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE" || GAS_URL === "") {
+            document.getElementById('tradeNote').value = "";
+            document.getElementById('actualShares').value = "";
+            alert("✅ 交易計畫已成功儲存至本地端！\n(提示：你尚未貼上 Google Sheets URL，所以暫時未能同步上雲端)");
+            return;
+        }
+
         // 2. 靜靜雞將資料發送到 Google Sheets
-        // 改變按鈕文字提示用戶正在上傳
         const btn = document.querySelector('button[onclick="saveTradeRecord()"]');
         const originalText = btn.innerText;
         btn.innerText = "⏳ 正在同步至 Google Sheets...";
         
         fetch(GAS_URL, {
             method: 'POST',
+            mode: 'no-cors', // 避免跨域阻擋
+            headers: {
+                'Content-Type': 'text/plain',
+            },
             body: JSON.stringify(newRecord)
         })
-        .then(response => {
-            document.getElementById('tradeNote').value = ""; // 清空筆記欄
+        .then(() => {
+            document.getElementById('tradeNote').value = ""; 
+            document.getElementById('actualShares').value = ""; // 清空實際數量欄
             btn.innerText = originalText;
-            alert("✅ 交易計畫已成功儲存並同步至 Google Sheets 雲端！");
+            alert("✅ 交易計畫已成功儲存，並同步至 Google Sheets 雲端！");
         })
         .catch(error => {
             console.error('Error:', error);
@@ -419,7 +442,6 @@
             alert("⚠️ 本地已儲存，但同步至 Google Sheets 失敗，請檢查網絡連線。");
         });
     }
-         
 
     function loadJournal() {
         renderJournal();
@@ -443,7 +465,7 @@
                 <td><span class="status-badge" style="padding:4px; font-size:12px; margin:0; background-color:#34495e;">${record.mode}</span></td>
                 <td>${record.entry}</td>
                 <td>${record.stop}</td>
-                <td>${record.shares}</td>
+                <td style="font-weight:bold;">${record.shares}</td>
                 <td style="max-width:300px; font-size:13px; color:#555;">${record.note || '-'}</td>
                 <td><button class="delete-btn" onclick="deleteRecord(${record.id})">刪除</button></td>
             `;
@@ -452,7 +474,7 @@
     }
 
     function deleteRecord(id) {
-        if (confirm("確定要刪除這筆紀錄嗎？")) {
+        if (confirm("確定要刪除這筆紀錄嗎？\n(注意：這只會刪除本地紀錄，已同步上 Google Sheets 的資料不受影響)")) {
             let journal = JSON.parse(localStorage.getItem('jlaw_journal')) || [];
             journal = journal.filter(record => record.id !== id);
             localStorage.setItem('jlaw_journal', JSON.stringify(journal));
@@ -465,44 +487,26 @@
         let journal = JSON.parse(localStorage.getItem('jlaw_journal')) || [];
         
         if (journal.length === 0) {
-            alert("⚠️ 目前冇任何交易紀錄可以匯出！");
-            return;
+            alert("⚠️ 目前冇任何交易紀錄可以匯出！"); return;
         }
 
-        // CSV 標頭
-        let csvContent = "日期,代號(Ticker),模式,買入價,止蝕價,數量,筆記與檢討\n";
+        let csvContent = "日期,代號(Ticker),模式,買入價,止蝕價,實際數量,筆記與檢討\n";
 
         journal.forEach(record => {
-            // 處理筆記中的逗號和換行符號 (用雙引號包住，並將原本的雙引號變成兩個雙引號)
             let safeNote = record.note ? '"' + record.note.replace(/"/g, '""').replace(/\n/g, " ") + '"' : '""';
-            
-            let row = [
-                record.date,
-                record.ticker,
-                record.mode,
-                record.entry,
-                record.stop,
-                record.shares,
-                safeNote
-            ];
-            
+            let row = [ record.date, record.ticker, record.mode, record.entry, record.stop, record.shares, safeNote ];
             csvContent += row.join(",") + "\n";
         });
 
-        // 加上 BOM (Byte Order Mark) 確保 Excel 打開時中文字唔會變亂碼
         let bom = "\uFEFF";
         let blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
         
-        // 建立下載連結並觸發
         let link = document.createElement("a");
         if (link.download !== undefined) {
             let url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
-            
-            // 檔名加上今日日期
             const dateStr = new Date().toISOString().split('T')[0];
             link.setAttribute("download", `JLaw_Trade_Journal_${dateStr}.csv`);
-            
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
