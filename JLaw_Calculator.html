@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J Law 交易指揮中心 (資金控管 + 進場 Checklist)</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; line-height: 1.6; padding: 20px; }
+        .main-wrapper { max-width: 1200px; margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .container { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .sidebar { background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); height: fit-content; border-top: 5px solid #2c3e50;}
+        h2 { text-align: center; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; font-size: 22px; }
+        h3 { color: #2980b9; margin-top: 0; border-bottom: 1px solid #bdc3c7; padding-bottom: 10px; font-size: 18px; display: flex; align-items: center; justify-content: space-between;}
+        
+        /* 計算機樣式 */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #34495e; font-size: 14px; }
+        input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
+        .section-title { font-size: 16px; font-weight: bold; color: #2980b9; margin-top: 20px; margin-bottom: 15px; border-bottom: 2px solid #ecf0f1; padding-bottom: 5px; }
+        button.calc-btn { display: block; width: 100%; padding: 14px; background-color: #3498db; color: white; border: none; border-radius: 5px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: background 0.3s; }
+        button.calc-btn:hover { background-color: #2980b9; }
+        .result-box { margin-top: 20px; padding: 15px; background-color: #f8f9f9; border: 1px solid #d5dbdb; border-radius: 5px; display: none; }
+        .result-item { margin-bottom: 8px; font-size: 15px; display: flex; justify-content: space-between; border-bottom: 1px solid #ecf0f1; padding-bottom: 5px;}
+        .result-item:last-child { border-bottom: none; }
+        .highlight { font-weight: bold; color: #c0392b; font-size: 16px; }
+        .status-badge { display: block; text-align: center; padding: 8px 10px; border-radius: 5px; font-size: 15px; font-weight: bold; color: white; margin-bottom: 15px;}
+        .mode-defense { background-color: #e74c3c; }
+        .mode-normal { background-color: #f39c12; }
+        .mode-attack { background-color: #27ae60; }
+        .mode-custom { background-color: #8e44ad; }
+        .r-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; text-align: center; }
+        .r-box { background: #d4efdf; padding: 6px; border-radius: 5px; font-weight: bold; font-size: 14px; border: 1px solid #abebc6;}
+        .r-box span { display: block; font-size: 11px; color: #1e8449; font-weight: normal; }
+        .asset-type-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 10px; }
+        .badge-stock { background-color: #3498db; color: white; }
+        .badge-crypto { background-color: #f39c12; color: white; }
+
+        /* Checklist 樣式 */
+        .strategy-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
+        .strategy-header { font-size: 18px; font-weight: bold; color: #d35400; margin-bottom: 10px; display: flex; align-items: center;}
+        .strategy-header span { background: #d35400; color: white; font-size: 12px; padding: 3px 8px; border-radius: 12px; margin-left: 10px; font-weight: normal;}
+        .strategy-header.pullback { color: #27ae60; }
+        .strategy-header.pullback span { background: #27ae60; }
+        
+        .checklist-item { display: flex; align-items: flex-start; margin-bottom: 10px; cursor: pointer; }
+        .checklist-item input[type="checkbox"] { margin-top: 4px; margin-right: 10px; transform: scale(1.2); cursor: pointer; accent-color: #3498db;}
+        .checklist-text { font-size: 14px; color: #495057; }
+        .checklist-text strong { color: #2c3e50; }
+        
+        .strategy-summary { font-size: 13px; color: #7f8c8d; background: #fff; padding: 10px; border-left: 3px solid #bdc3c7; margin-top: 10px;}
+        .pro-con { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; font-size: 13px;}
+        .pro-con .pro { color: #27ae60; }
+        .pro-con .con { color: #c0392b; }
+
+        @media (max-width: 900px) {
+            .main-wrapper { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-wrapper">
+    <div class="main-content">
+        <div class="container" style="border-top: 5px solid #3498db;">
+            <h2>📊 第一部分：股/幣 資金控管與 R倍數</h2>
+            
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>大盤趨勢 (市場濾網)：</label>
+                    <select id="marketTrend">
+                        <option value="up">✅ 上升趨勢 (在 50MA 之上)</option>
+                        <option value="down">❌ 下降或盤整 (跌破 50MA)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="color: #8e44ad;">自訂單筆風險比例 (%)：</label>
+                    <input type="number" id="customRisk" placeholder="留空則使用軟墊原則" step="0.1">
+                </div>
+            </div>
+
+            <div class="section-title">💰 總帳戶狀態 (基準：HKD)</div>
+            <div class="grid-2">
+                <div class="form-group"><label>年初初始本金 (HKD)：</label><input type="number" id="initialCapital" value="100000" step="1000"></div>
+                <div class="form-group"><label>目前總資金 (HKD)：</label><input type="number" id="currentEquity" value="100000" step="1000"></div>
+            </div>
+
+            <div class="section-title">🎯 單筆交易設定</div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>此筆交易幣種：</label>
+                    <select id="tradeCurrency">
+                        <option value="USD">美金 (USD)</option>
+                        <option value="HKD">港幣 (HKD)</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>USD/HKD 匯率：</label><input type="number" id="exchangeRate" value="7.8" step="0.01"></div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>交易資產類型：</label>
+                    <select id="assetType" style="border: 2px solid #3498db; background-color: #f4f9f9;">
+                        <option value="stock">📈 股票 (整數股)</option>
+                        <option value="crypto">🪙 加密貨幣 Crypto (精確至 4 位小數)</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>預計買入價 (Entry)：</label><input type="number" id="entryPrice" step="0.0001"></div>
+                <div class="form-group"><label>設定停損價 (Stop)：</label><input type="number" id="stopPrice" step="0.0001"></div>
+            </div>
+
+            <button class="calc-btn" onclick="calculateEntry()">1. 計算進場計畫與 R 倍數</button>
+
+            <div class="result-box" id="entryResultBox">
+                <div id="modeBadge" class="status-badge"></div>
+                <div class="result-item"><span>1. 承受的最大風險 (Max Loss HKD)：</span> <strong id="resMaxLossHKD"></strong></div>
+                <div class="result-item"><span>2. 佔總資金倉位 (Position Size)：</span> <strong id="resPositionPct" style="color:#2980b9;"></strong></div>
+                <div class="result-item"><span>3. 總投入資金 (<span id="investCurrLabel"></span>)：</span> <strong id="resTotalInvest"></strong></div>
+                <div class="result-item highlight" style="background:#fdf2e9; padding:8px; border-radius:4px; margin-top:10px;">
+                    <span>👉 建議買入數量 <span id="resAssetBadge"></span>：</span> <span id="resShares"></span>
+                </div>
+
+                <div class="section-title" style="font-size: 14px; margin-top:15px;">📈 目標價推算</div>
+                <div class="r-grid">
+                    <div class="r-box">1R <span>(1:1)</span><div id="r1_price">--</div></div>
+                    <div class="r-box">2R <span>(1:2)</span><div id="r2_price">--</div></div>
+                    <div class="r-box">3R <span>(1:3)</span><div id="r3_price">--</div></div>
+                    <div class="r-box">4R <span>(1:4)</span><div id="r4_price">--</div></div>
+                    <div class="r-box">5R <span>(1:5)</span><div id="r5_price">--</div></div>
+                    <div class="r-box" style="background:#a9dfbf; border-color:#27ae60;">6R <span>(1:6)</span><div id="r6_price">--</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2 style="font-size: 18px; color:#27ae60; border-bottom-color:#27ae60;">🛡️ 0 成本持有計算 (Free Ride)</h2>
+            <div class="grid-2">
+                <div class="form-group"><label>買入均價：</label><input type="number" id="freeRideEntry" step="0.0001"></div>
+                <div class="form-group"><label>目前持有數量：</label><input type="number" id="freeRideShares" step="0.0001"></div>
+            </div>
+            <div class="form-group"><label>預計賣出價：</label><input type="number" id="freeRideTarget" step="0.0001"></div>
+            <button class="calc-btn" style="background-color: #27ae60; margin-top:5px; padding:10px;" onclick="calculateFreeRide()">計算 0 成本賣出量</button>
+            <div class="result-box" id="freeRideResultBox">
+                <div class="result-item"><span>👉 需賣出數量 (拿回本金)：</span> <span id="frSellShares" class="highlight"></span></div>
+                <div class="result-item" style="color: #27ae60; font-weight: bold;"><span>🎉 剩餘「免費」數量：</span> <span id="frRemainingShares"></span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <h3>✅ 進場時機 Checklist <button onclick="clearCheckboxes()" style="background:none; border:none; color:#7f8c8d; cursor:pointer; font-size:12px; text-decoration:underline;">清除全部</button></h3>
+        <p style="font-size:13px; color:#555; margin-bottom: 20px;">落盤前請確認你目前使用緊邊一套戰法，並確認信號：</p>
+
+        <div class="strategy-card">
+            <div class="strategy-header">⚔️ 帶大成交量「穿頂」 <span>攻堅戰</span></div>
+            <div class="strategy-summary">目的：買喺 VCP/Pivot 突破臨界點，食主升浪。</div>
+            
+            <div style="margin-top: 15px;">
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text"><strong>大市環境配合：</strong> 大市處於 Confirmed Uptrend，市場氣氛好。</div>
+                </label>
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text"><strong>股票完成築底：</strong> 已消化獲利盤，畫出靚 VCP/帶柄茶杯/平底。</div>
+                </label>
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text"><strong>右側極度緊湊 (Tightness)：</strong> 近幾日波幅極度收窄 (1-3%)，收市價貼近。</div>
+                </label>
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text"><strong>成交量乾涸 (Volume Dry-up)：</strong> 突破前夕成交量縮至極低 (<50MA 一半)。</div>
+                </label>
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text" style="color:#c0392b;"><strong>🎯 觸發信號 (Trigger)：</strong> 升穿樞紐點 (Pivot)，且開市頭一粒鐘成交量爆發 (預計全日達平時 1.5-2倍+)。</div>
+                </label>
+            </div>
+            
+            <div class="pro-con">
+                <div class="pro">✓ 一買即飆，資金效率極高。</div>
+                <div class="con">✗ 大市震盪易遇「假突破」，需極速止蝕。</div>
+            </div>
+        </div>
+
+        <div class="strategy-card">
+            <div class="strategy-header pullback">🛡️ 多重優勢交易法 <span>埋伏戰</span></div>
+            <div class="strategy-summary">目的：喺大戶護盤支持位提早上車，博高值博率 (買入回調)。</div>
+            
+            <div style="margin-top: 15px;">
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text"><strong>時機適合：</strong> 大市 Choppy 突破易失敗，或強勢股升離 Pivot 太遠 (>5%) 錯過首波。</div>
+                </label>
+                <div class="checklist-text" style="margin-bottom:5px; margin-top:10px;"><strong>尋找疊加優勢 (至少符合 3 項)：</strong></div>
+                <label class="checklist-item" style="margin-left:15px;">
+                    <input type="checkbox">
+                    <div class="checklist-text">回調至關鍵均線 (10/20/50MA)</div>
+                </label>
+                <label class="checklist-item" style="margin-left:15px;">
+                    <input type="checkbox">
+                    <div class="checklist-text">前高變支持 (Previous Resistance turned Support)</div>
+                </label>
+                <label class="checklist-item" style="margin-left:15px;">
+                    <input type="checkbox">
+                    <div class="checklist-text">掂到上升趨勢線 (Trendline)</div>
+                </label>
+                <label class="checklist-item" style="margin-left:15px;">
+                    <input type="checkbox">
+                    <div class="checklist-text">回調下跌期間呈「縮量 (Low Volume)」，無大戶散貨</div>
+                </label>
+                <label class="checklist-item">
+                    <input type="checkbox">
+                    <div class="checklist-text" style="color:#27ae60;"><strong>🎯 觸發信號 (Trigger)：</strong> 跌至多重支持區當日，成交量重新放大，且出現明顯反彈 K 線 (如長下影線/吞噬/口袋支點)。</div>
+                </label>
+            </div>
+
+            <div class="pro-con">
+                <div class="pro">✓ 止蝕位極近，風險極低，R倍數高。</div>
+                <div class="con">✗ 若動力衰竭，均線會形同虛設直接插穿。</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function calculateEntry() {
+        const trend = document.getElementById('marketTrend').value;
+        const customRiskInput = document.getElementById('customRisk').value;
+        const tradeCurr = document.getElementById('tradeCurrency').value;
+        const assetType = document.getElementById('assetType').value;
+        const rate = parseFloat(document.getElementById('exchangeRate').value) || 7.8;
+        const initialHKD = parseFloat(document.getElementById('initialCapital').value);
+        const currentHKD = parseFloat(document.getElementById('currentEquity').value);
+        
+        const entry = parseFloat(document.getElementById('entryPrice').value);
+        const stop = parseFloat(document.getElementById('stopPrice').value);
+
+        if (!entry || !stop || entry <= stop) {
+            alert("請檢查：買入價必須大於停損價！");
+            return;
+        }
+
+        let appliedRiskPct;
+        let modeText = "";
+        let modeClass = "";
+
+        if (customRiskInput !== "") {
+            appliedRiskPct = parseFloat(customRiskInput) / 100;
+            modeText = `🔧 自訂風險模式 (${customRiskInput}%)`;
+            modeClass = "mode-custom";
+        } else {
+            const baseRiskPct = 0.01; 
+            const profitHKD = currentHKD - initialHKD;
+            const profitPct = profitHKD / initialHKD;
+
+            if (trend === 'down') {
+                appliedRiskPct = baseRiskPct * 0.5;
+                modeText = "🛡️ 防守模式 (大盤轉弱 0.5%)";
+                modeClass = "mode-defense";
+            } else {
+                if (profitPct <= 0) {
+                    appliedRiskPct = baseRiskPct * 0.5;
+                    modeText = "🛡️ 試水溫 (無軟墊 0.5%)";
+                    modeClass = "mode-defense";
+                } else if (profitPct > 0 && profitPct <= 0.03) {
+                    appliedRiskPct = baseRiskPct;
+                    modeText = "⚖️ 正常建倉 (標準 1.0%)";
+                    modeClass = "mode-normal";
+                } else {
+                    appliedRiskPct = baseRiskPct * 1.5;
+                    modeText = "⚔️ 攻擊模式 (軟墊豐厚 1.5%)";
+                    modeClass = "mode-attack";
+                }
+            }
+        }
+
+        const maxRiskAmountHKD = currentHKD * appliedRiskPct;
+        let maxRiskTradeCurr = maxRiskAmountHKD;
+        if (tradeCurr === 'USD') { maxRiskTradeCurr = maxRiskAmountHKD / rate; }
+
+        const riskPerUnitTradeCurr = entry - stop;
+        const rawUnits = maxRiskTradeCurr / riskPerUnitTradeCurr;
+        
+        let unitsToBuy;
+        let badgeHTML = "";
+        if (assetType === 'crypto') {
+            unitsToBuy = rawUnits.toFixed(4);
+            badgeHTML = `<span class="asset-type-badge badge-crypto">🪙 Crypto</span>`;
+        } else {
+            unitsToBuy = Math.floor(rawUnits);
+            badgeHTML = `<span class="asset-type-badge badge-stock">📈 Stock</span>`;
+        }
+        
+        const totalInvestmentTradeCurr = parseFloat(unitsToBuy) * entry;
+        let totalInvestmentHKD = totalInvestmentTradeCurr;
+        if (tradeCurr === 'USD') { totalInvestmentHKD = totalInvestmentTradeCurr * rate; }
+        const positionPct = (totalInvestmentHKD / currentHKD) * 100;
+
+        const priceDecimals = assetType === 'crypto' && entry < 1 ? 4 : 2; 
+        
+        document.getElementById('r1_price').innerText = (entry + riskPerUnitTradeCurr * 1).toFixed(priceDecimals);
+        document.getElementById('r2_price').innerText = (entry + riskPerUnitTradeCurr * 2).toFixed(priceDecimals);
+        document.getElementById('r3_price').innerText = (entry + riskPerUnitTradeCurr * 3).toFixed(priceDecimals);
+        document.getElementById('r4_price').innerText = (entry + riskPerUnitTradeCurr * 4).toFixed(priceDecimals);
+        document.getElementById('r5_price').innerText = (entry + riskPerUnitTradeCurr * 5).toFixed(priceDecimals);
+        document.getElementById('r6_price').innerText = (entry + riskPerUnitTradeCurr * 6).toFixed(priceDecimals);
+
+        document.getElementById('modeBadge').innerText = modeText;
+        document.getElementById('modeBadge').className = `status-badge ${modeClass}`;
+        
+        document.getElementById('resMaxLossHKD').innerText = `$${maxRiskAmountHKD.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('resPositionPct').innerText = `${positionPct.toFixed(2)}%`;
+        document.getElementById('investCurrLabel').innerText = tradeCurr;
+        document.getElementById('resTotalInvest').innerText = `$${totalInvestmentTradeCurr.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        
+        document.getElementById('resAssetBadge').innerHTML = badgeHTML;
+        document.getElementById('resShares').innerText = unitsToBuy;
+        
+        document.getElementById('entryResultBox').style.display = 'block';
+        
+        document.getElementById('freeRideEntry').value = entry;
+        document.getElementById('freeRideShares').value = unitsToBuy;
+    }
+
+    function calculateFreeRide() {
+        const entryPrice = parseFloat(document.getElementById('freeRideEntry').value);
+        const totalUnits = parseFloat(document.getElementById('freeRideShares').value);
+        const targetPrice = parseFloat(document.getElementById('freeRideTarget').value);
+        const assetType = document.getElementById('assetType').value;
+
+        if (!entryPrice || !totalUnits || !targetPrice || targetPrice <= entryPrice) {
+            alert("請檢查輸入數值，賣出價必須大於買入價！"); return;
+        }
+
+        const rawUnitsToSell = (entryPrice * totalUnits) / targetPrice; 
+        let unitsToSell;
+        let remainingUnits;
+
+        if (assetType === 'crypto') {
+            unitsToSell = rawUnitsToSell.toFixed(4);
+            remainingUnits = (totalUnits - parseFloat(unitsToSell)).toFixed(4);
+        } else {
+            unitsToSell = Math.ceil(rawUnitsToSell);
+            remainingUnits = totalUnits - unitsToSell;
+        }
+
+        if (parseFloat(unitsToSell) >= totalUnits) {
+             document.getElementById('frSellShares').innerText = "無法達成 (已超過持有量)";
+             document.getElementById('frRemainingShares').innerText = "0";
+        } else {
+            document.getElementById('frSellShares').innerText = unitsToSell;
+            document.getElementById('frRemainingShares').innerText = remainingUnits;
+        }
+        document.getElementById('freeRideResultBox').style.display = 'block';
+    }
+
+    function clearCheckboxes() {
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+    }
+</script>
+
+</body>
+</html>
