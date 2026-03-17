@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J Law 交易指揮中心 (資金控管 + 交易日誌)</title>
+    <title>J Law 交易指揮中心 (終極版)</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; line-height: 1.6; padding: 20px; }
         .main-wrapper { max-width: 1200px; margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -24,6 +24,8 @@
         button.btn-green:hover { background-color: #2ecc71; }
         button.btn-dark { background-color: #34495e; margin-top: 10px;}
         button.btn-dark:hover { background-color: #2c3e50; }
+        button.btn-outline { background-color: transparent; color: #2980b9; border: 2px solid #2980b9; margin-top: 10px; }
+        button.btn-outline:hover { background-color: #eaf2f8; }
         
         .result-box { margin-top: 20px; padding: 15px; background-color: #f8f9f9; border: 1px solid #d5dbdb; border-radius: 5px; display: none; }
         .result-item { margin-bottom: 8px; font-size: 15px; display: flex; justify-content: space-between; border-bottom: 1px solid #ecf0f1; padding-bottom: 5px;}
@@ -209,9 +211,12 @@
             <textarea id="tradeNote" rows="3" placeholder="例如：大盤氣氛轉好， NVDA 出現完美 VCP 突破，帶 2 倍 Volume。打算喺 3R 賣出一半..."></textarea>
         </div>
         
-        <button class="btn btn-dark" onclick="saveTradeRecord()">💾 儲存此筆交易計畫入日誌</button>
+        <div class="grid-2" style="gap: 10px;">
+            <button class="btn btn-dark" onclick="saveTradeRecord()">💾 儲存此筆交易計畫入日誌</button>
+            <button class="btn btn-outline" onclick="exportToCSV()">📥 一鍵匯出為 Excel (CSV)</button>
+        </div>
 
-        <div style="overflow-x: auto;">
+        <div style="overflow-x: auto; margin-top: 20px;">
             <table id="journalTable">
                 <thead>
                     <tr>
@@ -323,10 +328,11 @@
         currentCalcData = {
             ticker: ticker || "未填寫",
             mode: modeText.split(' ')[1], // 提取模式名稱
-            entry: entry,
-            stop: stop,
-            shares: unitsToBuy,
-            currency: tradeCurr
+            entry: currentCalcData.currency + " $" + entry, // 純數字方便日後擴充
+            rawEntry: entry, 
+            rawStop: stop,
+            currency: tradeCurr,
+            shares: unitsToBuy
         };
     }
 
@@ -364,20 +370,23 @@
 
     // --- 交易日誌 (Journal) 系統 ---
     function saveTradeRecord() {
-        if (!currentCalcData.entry) {
+        if (!currentCalcData.rawEntry) {
             alert("請先點擊「1. 計算進場計畫與 R 倍數」以產生數據！"); return;
         }
         
         const note = document.getElementById('tradeNote').value;
-        const date = new Date().toLocaleDateString('zh-HK');
+        
+        // 獲取當前完整日期與時間
+        const now = new Date();
+        const dateString = now.toLocaleDateString('zh-HK') + " " + now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
         
         const newRecord = {
             id: Date.now(),
-            date: date,
+            date: dateString,
             ticker: currentCalcData.ticker,
             mode: currentCalcData.mode,
-            entry: currentCalcData.currency + " $" + currentCalcData.entry,
-            stop: currentCalcData.currency + " $" + currentCalcData.stop,
+            entry: currentCalcData.currency + " " + currentCalcData.rawEntry,
+            stop: currentCalcData.currency + " " + currentCalcData.rawStop,
             shares: currentCalcData.shares,
             note: note
         };
@@ -408,7 +417,7 @@
         journal.forEach(record => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${record.date}</td>
+                <td style="font-size: 12px; color: #7f8c8d;">${record.date}</td>
                 <td style="font-weight:bold; color:#2980b9;">${record.ticker}</td>
                 <td><span class="status-badge" style="padding:4px; font-size:12px; margin:0; background-color:#34495e;">${record.mode}</span></td>
                 <td>${record.entry}</td>
@@ -427,6 +436,56 @@
             journal = journal.filter(record => record.id !== id);
             localStorage.setItem('jlaw_journal', JSON.stringify(journal));
             renderJournal();
+        }
+    }
+
+    // --- 一鍵匯出 CSV 系統 ---
+    function exportToCSV() {
+        let journal = JSON.parse(localStorage.getItem('jlaw_journal')) || [];
+        
+        if (journal.length === 0) {
+            alert("⚠️ 目前冇任何交易紀錄可以匯出！");
+            return;
+        }
+
+        // CSV 標頭
+        let csvContent = "日期,代號(Ticker),模式,買入價,止蝕價,數量,筆記與檢討\n";
+
+        journal.forEach(record => {
+            // 處理筆記中的逗號和換行符號 (用雙引號包住，並將原本的雙引號變成兩個雙引號)
+            let safeNote = record.note ? '"' + record.note.replace(/"/g, '""').replace(/\n/g, " ") + '"' : '""';
+            
+            let row = [
+                record.date,
+                record.ticker,
+                record.mode,
+                record.entry,
+                record.stop,
+                record.shares,
+                safeNote
+            ];
+            
+            csvContent += row.join(",") + "\n";
+        });
+
+        // 加上 BOM (Byte Order Mark) 確保 Excel 打開時中文字唔會變亂碼
+        let bom = "\uFEFF";
+        let blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+        
+        // 建立下載連結並觸發
+        let link = document.createElement("a");
+        if (link.download !== undefined) {
+            let url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            
+            // 檔名加上今日日期
+            const dateStr = new Date().toISOString().split('T')[0];
+            link.setAttribute("download", `JLaw_Trade_Journal_${dateStr}.csv`);
+            
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
     }
 </script>
