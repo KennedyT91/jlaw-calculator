@@ -369,14 +369,15 @@
     }
 
     // --- 交易日誌 (Journal) 系統 ---
-    function saveTradeRecord() {
+   function saveTradeRecord() {
         if (!currentCalcData.rawEntry) {
             alert("請先點擊「1. 計算進場計畫與 R 倍數」以產生數據！"); return;
         }
         
-        const note = document.getElementById('tradeNote').value;
+        // 🚨 請將下面這行引號內的網址，換成你剛剛複製的 Google Web App URL 🚨
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzwzZxKHx5jjXV2xBzBvGsdvHYfaspDfNjncCKEG25pvKR3Ja7YY9dNzpeIrRMTsz77KQ/exec";
         
-        // 獲取當前完整日期與時間
+        const note = document.getElementById('tradeNote').value;
         const now = new Date();
         const dateString = now.toLocaleDateString('zh-HK') + " " + now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
         
@@ -391,14 +392,34 @@
             note: note
         };
 
+        // 1. 照常儲存到本地端 (讓你手機網頁下方依然睇到紀錄)
         let journal = JSON.parse(localStorage.getItem('jlaw_journal')) || [];
-        journal.unshift(newRecord); // 加到最前面
+        journal.unshift(newRecord);
         localStorage.setItem('jlaw_journal', JSON.stringify(journal));
-
-        document.getElementById('tradeNote').value = ""; // 清空筆記欄
-        alert("✅ 交易計畫已成功儲存至日誌！");
         renderJournal();
+
+        // 2. 靜靜雞將資料發送到 Google Sheets
+        // 改變按鈕文字提示用戶正在上傳
+        const btn = document.querySelector('button[onclick="saveTradeRecord()"]');
+        const originalText = btn.innerText;
+        btn.innerText = "⏳ 正在同步至 Google Sheets...";
+        
+        fetch(GAS_URL, {
+            method: 'POST',
+            body: JSON.stringify(newRecord)
+        })
+        .then(response => {
+            document.getElementById('tradeNote').value = ""; // 清空筆記欄
+            btn.innerText = originalText;
+            alert("✅ 交易計畫已成功儲存並同步至 Google Sheets 雲端！");
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            btn.innerText = originalText;
+            alert("⚠️ 本地已儲存，但同步至 Google Sheets 失敗，請檢查網絡連線。");
+        });
     }
+         
 
     function loadJournal() {
         renderJournal();
