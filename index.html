@@ -68,6 +68,12 @@
         .delete-btn { background-color: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;}
         .delete-btn:hover { background-color: #c0392b; }
 
+        /* 💡 新增：熔斷警告動畫樣式 */
+        .circuit-breaker-alert { background-color: #c0392b; color: white; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; display: none; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4); animation: pulse 2s infinite; }
+        .circuit-breaker-alert h3 { color: white; border: none; justify-content: center; margin-bottom: 5px; font-size: 20px;}
+        .circuit-breaker-alert p { font-size: 16px; font-weight: bold; margin: 0; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 5px; display: inline-block;}
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+
         @media (max-width: 900px) {
             .main-wrapper { grid-template-columns: 1fr; }
         }
@@ -77,6 +83,12 @@
 
 <div class="main-wrapper">
     <div class="main-content">
+        <div id="circuitBreakerAlert" class="circuit-breaker-alert">
+            <h3>🚨 警告：已觸發 -5% 熔斷機制 🚨</h3>
+            <p id="drawdownText">整體倉位已虧損 0.00 %</p>
+            <div style="font-size: 13px; margin-top: 10px; opacity: 0.9;">系統不鎖死落盤功能，但強烈建議您停止交易，保護本金。</div>
+        </div>
+
         <div class="container" style="border-top: 5px solid #3498db;">
             <h2>📊 第一部分：資金控管與 R倍數</h2>
             
@@ -97,6 +109,11 @@
             <div class="grid-2">
                 <div class="form-group"><label>年初初始本金 (HKD)：</label><input type="number" id="initialCapital" value="100000" step="1000"></div>
                 <div class="form-group"><label>目前總資金 (HKD)：</label><input type="number" id="currentEquity" value="100000" step="1000"></div>
+                
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label style="color: #c0392b;">本月累積盈虧 (%) [用於 -5% 熔斷監控]：</label>
+                    <input type="number" id="monthlyDrawdown" value="0" step="0.1" placeholder="例如輸入 -5.2">
+                </div>
             </div>
 
             <div class="section-title">🎯 單筆交易設定</div>
@@ -130,7 +147,13 @@
             <div class="result-box" id="entryResultBox">
                 <div id="modeBadge" class="status-badge"></div>
                 <div class="result-item"><span>最大風險 (Max Loss HKD)：</span> <strong id="resMaxLossHKD"></strong></div>
-                <div class="result-item"><span>佔總資金倉位 (Position Size)：</span> <strong id="resPositionPct" style="color:#2980b9;"></strong></div>
+                <div class="result-item">
+                    <span>佔總資金倉位 (Position Size)：</span> 
+                    <div style="text-align: right;">
+                        <strong id="resPositionPct" style="color:#2980b9;"></strong>
+                        <div id="posWarning" style="color: #c0392b; font-weight: bold; font-size: 13px; margin-top: 3px;"></div>
+                    </div>
+                </div>
                 <div class="result-item"><span>總投入資金 (<span id="investCurrLabel"></span>)：</span> <strong id="resTotalInvest"></strong></div>
                 <div class="result-item highlight" style="background:#fdf2e9; padding:8px; border-radius:4px; margin-top:10px;">
                     <span>👉 建議買入數量 <span id="resAssetBadge"></span>：</span> <span id="resShares"></span>
@@ -219,7 +242,7 @@
         </div>
         
         <div class="grid-2" style="gap: 10px;">
-            <button class="btn btn-dark" onclick="saveTradeRecord()">💾 儲存此筆交易計畫入日誌</button>
+            <button class="btn btn-dark" id="saveLogBtn" onclick="saveTradeRecord()">💾 儲存此筆交易計畫入日誌</button>
             <button class="btn btn-outline" onclick="exportToCSV()">📥 一鍵匯出為 Excel (CSV)</button>
         </div>
 
@@ -258,8 +281,23 @@
         const initialHKD = parseFloat(document.getElementById('initialCapital').value);
         const currentHKD = parseFloat(document.getElementById('currentEquity').value);
         
+        // 💡 讀取本月盈虧
+        const monthlyDrawdown = parseFloat(document.getElementById('monthlyDrawdown').value) || 0;
+        
         const entry = parseFloat(document.getElementById('entryPrice').value);
         const stop = parseFloat(document.getElementById('stopPrice').value);
+
+        // 🚨 邏輯 1：-5% 熔斷檢查 (顯示警告，但不鎖死按鈕)
+        const alertBox = document.getElementById('circuitBreakerAlert');
+        const ddText = document.getElementById('drawdownText');
+        
+        if (monthlyDrawdown <= -5.0) {
+            alertBox.style.display = 'block';
+            // 顯示實際虧損數字，取絕對值並格式化至小數點後2位
+            ddText.innerText = `整體倉位已虧損 ${Math.abs(monthlyDrawdown).toFixed(2)} %`;
+        } else {
+            alertBox.style.display = 'none';
+        }
 
         if (!entry || !stop || entry <= stop) {
             alert("請檢查：買入價必須大於停損價！"); return;
@@ -321,6 +359,15 @@
         document.getElementById('modeBadge').className = `status-badge ${modeClass}`;
         document.getElementById('resMaxLossHKD').innerText = `$${maxRiskAmountHKD.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         document.getElementById('resPositionPct').innerText = `${positionPct.toFixed(2)}%`;
+        
+        // 🚨 邏輯 2：>15% 倉位警告 (僅視覺提示，不修改數值)
+        const posWarning = document.getElementById('posWarning');
+        if (positionPct > 15.0) {
+            posWarning.innerText = `⚠️ 警告：買入金額已達總資金 ${positionPct.toFixed(2)}%，超過 15% 絕對極限！`;
+        } else {
+            posWarning.innerText = "";
+        }
+
         document.getElementById('investCurrLabel').innerText = tradeCurr;
         document.getElementById('resTotalInvest').innerText = `$${totalInvestmentTradeCurr.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         document.getElementById('resAssetBadge').innerHTML = badgeHTML;
